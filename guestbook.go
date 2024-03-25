@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"html/template"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -18,17 +17,15 @@ func check(err error) {
 
 func viewHandler(w http.ResponseWriter, r *http.Request) {
 	signatures := getStrings("signature.txt")
-	fmt.Printf("%v\n", signatures)
-
 	html, err := template.ParseFiles("view.html")
 	check(err)
-	err = html.Execute(w, nil)
+	guestbook := Guestbook{
+		SignatureCount: len(signatures),
+		Signatures:     signatures,
+	}
+	err = html.Execute(w, guestbook)
 	check(err)
-	message := []byte("signature list goes here")
-	_, err = w.Write(message)
-	check(err)
-	_, err = io.WriteString(w, signatures[0])
-	check(err)
+
 }
 func executeTemplate(text string, data interface{}) {
 	tmpl, err := template.New("test").Parse(text)
@@ -49,6 +46,18 @@ type Subscriber struct {
 	Active bool
 }
 
+type Guestbook struct {
+	SignatureCount int
+	Signatures     []string
+}
+
+func newHandler(w http.ResponseWriter, r *http.Request) {
+	html, err := template.ParseFiles("new.html")
+	check(err)
+	err = html.Execute(w, nil)
+	check(err)
+}
+
 func getStrings(fileName string) []string {
 	var lines []string
 	file, err := os.Open(fileName)
@@ -64,34 +73,23 @@ func getStrings(fileName string) []string {
 	check(scanner.Err())
 	return lines
 }
+func creatHandler(w http.ResponseWriter, r *http.Request) {
+	sig := r.FormValue("signature")
+	options := os.O_WRONLY | os.O_APPEND | os.O_CREATE
+	file, err := os.OpenFile("signature.txt", options, os.FileMode(0600))
+	check(err)
+	_, err = fmt.Fprintln(file, sig)
+	check(err)
+	err = file.Close()
+	check(err)
+	http.Redirect(w, r, "/guestbook", http.StatusFound)
+}
 
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/guestbook", viewHandler)
+	mux.HandleFunc("/guestbook/new", newHandler)
+	mux.HandleFunc("/guestbook/create", creatHandler)
 	err := http.ListenAndServe("localhost:8080", mux)
 	log.Fatal(err)
-
-	text := "Action start\n {{.}} \nEnd"
-	tmpl, err := template.New("test").Parse(text)
-	check(err)
-	err = tmpl.Execute(os.Stdout, 42)
-	check(err)
-	err = tmpl.Execute(os.Stdout, "om a hum")
-	check(err)
-	err = tmpl.Execute(os.Stdout, 34)
-	check(err)
-
-	executeTemplate("Hello {{.}} end\n", "tatata")
-	executeTemplate("start {{if .}} true or false {{end}}finish\n", false)
-	tmplTxt := "Before loop {{.}}\n {{range .}} in loop {{.}}\n {{end}} after loop{{.}}\n"
-	executeTemplate(tmplTxt, []string{"do", "re", "mi"})
-	tmplNum := "Prices: {{range .}} {{.}}\n {{end}}"
-	executeTemplate(tmplNum, []float64{3.45, 5.67, 67.34})
-
-	tmplStruct := "Data from structure {{.Name}}\n {{.Age}}\n"
-	executeTemplate(tmplStruct, Client{"Denis", 38})
-
-	tmplStr2 := "Subscriber {{.Name}}\n {{if .Active}} Rate {{.Rate}}\n {{end}}"
-	sub := Subscriber{"Denis", 56.67, false}
-	executeTemplate(tmplStr2, sub)
 }
